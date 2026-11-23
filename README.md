@@ -6,7 +6,6 @@ Učna igra iz geografije in zgodovine za 7., 8. in 9. razred osnovne šole. Uče
 | --- | --- |
 | `frontend` | Aplikacija (Next.js) in knjižnica komponent |
 | `backend` | API (Express) in baza (PostgreSQL z Drizzle) |
-| `mock` | Prvi prototip, ni del Dockerja |
 
 ## Zagon z Dockerjem
 
