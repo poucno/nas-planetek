@@ -14,6 +14,7 @@
     "db:studio": "drizzle-kit studio",
     "db:check": "tsx src/db/check.ts",
     "db:seed": "tsx src/db/seed.ts",
+    "test:history": "node --import tsx --test src/history.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

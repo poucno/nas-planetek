@@ -8,7 +8,7 @@ export interface LngLat {
 export type Correctness = "yes" | "partially" | "no";
 export const MAX_POINTS = 1000;
 
-const distanceInKilometers = (first: LngLat, second: LngLat) => {
+export const distanceInKilometers = (first: LngLat, second: LngLat) => {
   const radians = (degrees: number) => (degrees * Math.PI) / 180;
   const latitudeDifference = radians(second.lat - first.lat);
   const longitudeDifference = radians(second.lng - first.lng);
@@ -18,7 +18,8 @@ const distanceInKilometers = (first: LngLat, second: LngLat) => {
       Math.cos(radians(second.lat)) *
       Math.sin(longitudeDifference / 2) ** 2;
 
-  return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+  const clamped = Math.min(1, haversine);
+  return 6371 * 2 * Math.atan2(Math.sqrt(clamped), Math.sqrt(1 - clamped));
 };
 
 export const pointsForDistance = (distanceKm: number) =>

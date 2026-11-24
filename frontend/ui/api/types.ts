@@ -104,3 +104,27 @@ export type GeoJsonPosition = Position;
 export type GeoJsonGeometry = Geometry;
 export type GeoJsonFeature = Feature<Geometry, GeoJsonProperties>;
 export type MapGeoData = FeatureCollection<Geometry, GeoJsonProperties>;
+
+export type HistoryEra = 'ww1' | 'ww2';
+export type HistoryOption = { id: string; label: string };
+export type HistorySource = { title: string; url: string };
+
+export type HistoryQuestion = Pick<Question, 'id' | 'prompt' | 'hint'> & {
+  period: string;
+} & (
+  | { kind: 'location' }
+  | { kind: 'participants'; options: HistoryOption[] }
+);
+
+export type HistoryAnswer =
+  | { kind: 'location'; coordinates: LngLat }
+  | { kind: 'participants'; optionIds: string[] };
+
+export type HistoryFeedback = Pick<QuestionAnswerFeedback, 'points' | 'correctness'> & {
+  answerLabel: string;
+  explanation: string;
+  sources: HistorySource[];
+} & (
+  | { kind: 'location'; correctAnswer: LngLat; distanceKm: number }
+  | { kind: 'participants'; correctAnswer: string[] }
+);
