@@ -5,6 +5,7 @@ import { authRouter } from "./routes/auth.js";
 import { countryGuessRouter } from "./routes/countryGuess.js";
 import { leaderboardRouter } from "./routes/leaderboard.js";
 import { questionsRouter } from "./routes/questions.js";
+import { historyRouter } from "./routes/history.js";
 
 const port = Number(process.env.PORT ?? 8080);
 
@@ -15,6 +16,7 @@ app.use(express.json());
 
 app.use("/api/auth", authRouter);
 app.use("/api/questions", questionsRouter);
+app.use("/api/history/questions", historyRouter);
 app.use("/api/leaderboard", leaderboardRouter);
 app.use("/api/country-guess", countryGuessRouter);
 

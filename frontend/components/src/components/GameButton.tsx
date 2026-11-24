@@ -74,6 +74,7 @@ const GameButton = ({ type, onClick, disabled = false, label, hover = false }: G
         .filter(Boolean)
         .join(' ')}
       type="button"
+      aria-label={hover && typeof label === 'string' ? label : undefined}
       disabled={disabled}
       onClick={onClick}
     >

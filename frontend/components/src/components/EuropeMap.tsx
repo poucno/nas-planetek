@@ -136,6 +136,7 @@ export type EuropeMapDisplay = {
   country?: boolean;
   city?: boolean;
   navigation?: boolean;
+  hideModernPolitics?: boolean;
 };
 
 type MapProps = {
@@ -175,6 +176,12 @@ const updateSymbolVisibility = (map: MapGL, layer: LayerSpecification) => {
     map.setLayoutProperty(id, 'visibility', 'none');
   }
 };
+
+const isModernPoliticalLayer = (layer: LayerSpecification) =>
+  ['data-layer', 'country-outlines', 'highlight-fill', 'highlight-line'].includes(layer.id) ||
+  ('source-layer' in layer && layer['source-layer'] === 'boundary') ||
+  /^(boundary|admin)[_-]/i.test(layer.id) ||
+  (layer.type === 'symbol' && /country|state|province/i.test(layer.id));
 
 const ringArea = (ring: Position[]) =>
   Math.abs(
@@ -355,8 +362,11 @@ const EuropeMap = ({ ref, ...props }: EuropeMapProps) => {
   const handlersRef = useRef({ onClick, onLoaded });
   const geojsonRef = useRef(geojson);
   const answerColorRef = useRef('#daa208');
+  const hideModernPolitics = display?.hideModernPolitics ?? false;
+  const hideModernPoliticsRef = useRef(hideModernPolitics);
 
   const getAnswerColor = (lngLat: LngLat) => {
+    if (hideModernPoliticsRef.current) return '#334155';
     const feature = geojsonRef.current.features.find((feature) =>
       containsPoint(feature, lngLat),
     );
@@ -401,6 +411,33 @@ const EuropeMap = ({ ref, ...props }: EuropeMapProps) => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    hideModernPoliticsRef.current = hideModernPolitics;
+    const map = mapInstance.current;
+    if (!map || !hideModernPolitics) return;
+
+    const restoreVisibility: (() => void)[] = [];
+    const hidePoliticalLayers = () => {
+      for (const layer of map.getStyle().layers.filter(isModernPoliticalLayer)) {
+        const { id } = layer;
+        const visibility = map.getLayoutProperty(id, 'visibility') ?? 'visible';
+        map.setLayoutProperty(id, 'visibility', 'none');
+        restoreVisibility.push(() => {
+          if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visibility);
+        });
+      }
+    };
+
+    if (map.getLayer('data-layer')) hidePoliticalLayers();
+    else map.once('load', hidePoliticalLayers);
+
+    return () => {
+      if (mapInstance.current !== map) return;
+      map.off('load', hidePoliticalLayers);
+      restoreVisibility.forEach((restore) => restore());
+    };
+  }, [hideModernPolitics]);
 
   useImperativeHandle(
     ref,
@@ -517,6 +554,7 @@ const EuropeMap = ({ ref, ...props }: EuropeMapProps) => {
         const marker = new Marker({ color: answerColor })
           .setLngLat(lngLat)
           .addTo(map);
+        if (hideModernPoliticsRef.current) marker.getElement().setAttribute('aria-label', 'Pravilna lokacija');
 
         markers.current.push(marker);
         return marker;
@@ -636,7 +674,10 @@ const EuropeMap = ({ ref, ...props }: EuropeMapProps) => {
           return null;
         }
 
-        const marker = new Marker().setLngLat(lngLat).addTo(mapInstance.current);
+        const marker = new Marker(hideModernPoliticsRef.current ? { color: '#64748b' } : undefined)
+          .setLngLat(lngLat)
+          .addTo(mapInstance.current);
+        if (hideModernPoliticsRef.current) marker.getElement().setAttribute('aria-label', 'Izbrana lokacija');
         markers.current.push(marker);
         return marker;
       },

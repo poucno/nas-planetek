@@ -1,9 +1,17 @@
 import { useReducer } from "react";
 import type { QuestionFeedback } from "@meridiani/components";
-import type { ReactNode } from "react";
-import { QuestionType, type CountryGuessQuestion, type LngLat, type Question } from "@/api/types";
+import { QuestionType, type CountryGuessQuestion, type HistoryFeedback, type HistoryQuestion, type LngLat, type Question } from "@/api/types";
 import type { EuropeMapDisplay } from "@meridiani/components";
 import { gameText } from "./gameText";
+
+export const HISTORY_MODE = {
+  id: 4,
+  kind: "history",
+  name: gameText.history.name,
+  description: gameText.history.description,
+  icon: gameText.history.icon,
+  display: { hideModernPolitics: true },
+} as const;
 
 export const GAME_MODES = [
   {
@@ -26,13 +34,14 @@ export const GAME_MODES = [
     ...gameText.modes.guessCountry,
     display: {},
   },
+  HISTORY_MODE,
 ] satisfies ({
   id: number;
   name: string;
   description: string;
   icon: string;
   display: EuropeMapDisplay;
-} & ({ kind: "map"; type: QuestionType } | { kind: "countryGuess" }))[];
+} & ({ kind: "map"; type: QuestionType } | { kind: "countryGuess" | "history" }))[];
 
 export type GameMode = (typeof GAME_MODES)[number];
 export type GamePhase = "ready" | "selecting" | "started" | "paused" | "completed";
@@ -50,13 +59,15 @@ export type QuestionResult = {
 export type GameData = {
   phase: GamePhase;
   activeMode: GameMode | null;
-  questions: (Question | CountryGuessQuestion)[];
+  questions: (Question | CountryGuessQuestion | HistoryQuestion)[];
   points: number;
   correctAnswers: number;
   questionResults: QuestionResult[];
   answerFeedbacks: QuestionFeedback[];
   selectedAnswer: string | null;
   selectedCoordinates: LngLat | null;
+  selectedHistoryOptions: string[];
+  historyFeedback: HistoryFeedback | null;
   questionIndex: number;
   loadingModeId: number | null;
   error: string | null;
@@ -71,10 +82,12 @@ export type GameAction =
   | { type: "loading"; modeId: number | null }
   | { type: "modeLoaded"; mode: GameMode; questions: GameData["questions"]; countryGuessGameId?: string }
   | { type: "selectAnswer"; coordinates: LngLat; answer: string }
+  | { type: "toggleHistoryOption"; optionId: string }
   | {
       type: "submitAnswer";
       result: QuestionResult;
       feedback: QuestionFeedback;
+      historyFeedback?: HistoryFeedback;
     }
   | { type: "wrongGuess"; answer: string }
   | { type: "tick"; milliseconds: number }
@@ -96,6 +109,8 @@ export const initialGameData = (phase: GamePhase = "ready"): GameData => ({
   answerFeedbacks: [],
   selectedAnswer: null,
   selectedCoordinates: null,
+  selectedHistoryOptions: [],
+  historyFeedback: null,
   questionIndex: 0,
   loadingModeId: null,
   error: null,
@@ -108,6 +123,16 @@ export const gameReducer = (state: GameData, action: GameAction): GameData => {
     case "reset":
       return initialGameData(action.phase);
     case "phase":
+      if (action.phase === "completed" && state.activeMode?.kind === "history") {
+        return {
+          ...state,
+          phase: action.phase,
+          selectedCoordinates: null,
+          selectedAnswer: null,
+          selectedHistoryOptions: [],
+          historyFeedback: null,
+        };
+      }
       return { ...state, phase: action.phase };
     case "error":
       return { ...state, error: action.message };
@@ -127,11 +152,19 @@ export const gameReducer = (state: GameData, action: GameAction): GameData => {
         selectedCoordinates: action.coordinates,
         selectedAnswer: action.answer,
       };
+    case "toggleHistoryOption":
+      return {
+        ...state,
+        selectedHistoryOptions: state.selectedHistoryOptions.includes(action.optionId)
+          ? state.selectedHistoryOptions.filter((id) => id !== action.optionId)
+          : [...state.selectedHistoryOptions, action.optionId],
+      };
     case "submitAnswer":
       return {
         ...state,
         questionResults: [...state.questionResults, action.result],
         answerFeedbacks: [...state.answerFeedbacks, action.feedback],
+        historyFeedback: action.historyFeedback ?? null,
         points: state.points + action.result.pointsEarned,
         correctAnswers:
           state.correctAnswers + Number(action.result.isCorrect),
@@ -155,6 +188,8 @@ export const gameReducer = (state: GameData, action: GameAction): GameData => {
         questionIndex: state.questionIndex + 1,
         selectedAnswer: null,
         selectedCoordinates: null,
+        selectedHistoryOptions: [],
+        historyFeedback: null,
       };
   }
 };

@@ -1,0 +1,57 @@
+.options {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+  text-align: left;
+  font-size: 0.86rem;
+}
+
+.options legend {
+  padding: 0 0 0.35rem;
+  font-weight: 700;
+}
+
+.option {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.option input {
+  margin: 0;
+}
+
+.option small {
+  display: block;
+  font-weight: 700;
+}
+
+.result,
+.instruction {
+  margin: 0.5rem 0 0;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.result p {
+  margin: 0.3rem 0;
+}
+
+.result ul {
+  padding-left: 1rem;
+  margin: 0.35rem 0 0;
+}
+
+.result a {
+  text-decoration: underline;
+}
+
+@media (max-width: 600px) {
+  .result {
+    max-height: 26dvh;
+    overflow-y: auto;
+  }
+}

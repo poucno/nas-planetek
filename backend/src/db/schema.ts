@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   doublePrecision,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -11,6 +12,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { HistoryQuestionData, HistorySource } from "../history.js";
 
 export const users = pgTable(
   "users",
@@ -61,6 +63,22 @@ export const questions = pgTable("questions", {
   // Ime v europe.geo.json, nastavljeno samo, ko je odgovor država
   country: text("country"),
 });
+
+export const historyEra = pgEnum("history_era", ["ww1", "ww2"]);
+
+export const historyQuestions = pgTable("history_questions", {
+  id: integer("id").primaryKey(),
+  era: historyEra("era").notNull(),
+  period: text("period").notNull(),
+  prompt: text("prompt").notNull(),
+  hint: text("hint").notNull(),
+  answerLabel: text("answer_label").notNull(),
+  explanation: text("explanation").notNull(),
+  sources: jsonb("sources").$type<HistorySource[]>().notNull(),
+  data: jsonb("data").$type<HistoryQuestionData>().notNull(),
+});
+
+export type HistoryQuestion = typeof historyQuestions.$inferSelect;
 
 export const guessCountries = pgTable("guess_countries", {
   // Brez samodejnega štetja, ker seed določi stalne številke držav

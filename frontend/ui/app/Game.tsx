@@ -28,6 +28,9 @@ import type {
   ResultSummaryContent,
 } from '@meridiani/components';
 import { getBundledMapGeoData } from '@/api/apiGeoService';
+import { ApiError } from '@/api/api';
+import { checkHistoryAnswer, getHistoryQuestions } from '@/api/apiHistoryService';
+import type { HistoryAnswer, HistoryEra } from '@/api/types';
 import {
   checkCountryGuess,
   createCountryGuessGame,
@@ -39,11 +42,12 @@ import {
 import { getMapGeoData } from '@/service/geoService';
 import { checkQuestionAnswer, getLeaderboard, getQuestionsForType } from '@/service/questionsService';
 import { formatCoordinates, formatPlaceName, formatTime, gameText } from './gameText';
-import { GAME_MODES, type GameMode, type GamePhase, type QuestionResult, useGame } from './useGame';
+import { GAME_MODES, HISTORY_MODE, type GameMode, type GamePhase, type QuestionResult, useGame } from './useGame';
 import { useAuth } from './useAuth';
 import AccountControls from './AccountControls';
 import AppLoadingSpinner from './AppLoadingSpinner';
 import AuthDialog from './AuthDialog';
+import HistoryQuestionPanel from './HistoryQuestionPanel';
 import PointsAward from './PointsAward';
 import styles from './page.module.css';
 
@@ -72,8 +76,10 @@ const maxPointsPerQuestion = 1000;
 const pointsPerCountryHit = 1;
 const STOPWATCH_INTERVAL_MS = 100;
 const DEFAULT_DISPLAY: EuropeMapDisplay = { country: true };
+const HISTORY_ERAS: HistoryEra[] = ['ww1', 'ww2'];
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : gameText.errors.unknown);
+const historyErrorMessage = (error: unknown) => error instanceof ApiError ? error.message : gameText.history.retry;
 
 function Game() {
   const [game, dispatch] = useGame();
@@ -90,6 +96,8 @@ function Game() {
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isChoosingHistoryEra, setIsChoosingHistoryEra] = useState(false);
+  const [isHistorySubmitting, setIsHistorySubmitting] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<{
     modeId: number;
     entries: ComponentLeaderboardEntry[];
@@ -118,6 +126,8 @@ function Game() {
   const isPaused = game.phase === 'paused';
   const isModalOpen = game.phase === 'selecting' || isPaused;
   const isCountryGuess = game.activeMode?.kind === 'countryGuess';
+  const isHistory = game.activeMode?.kind === 'history';
+  const historyQuestion = isHistory && currentQuestion && 'kind' in currentQuestion ? currentQuestion : null;
   const isCountryGuessRunning = isCountryGuess && game.phase === 'started';
   const highlightedCountries =
     (isCountryGuessRunning || (isCountryGuess && isPaused)) && currentQuestion && 'mapCountries' in currentQuestion
@@ -141,6 +151,7 @@ function Game() {
     modeRequestId.current += 1;
     answerRequestId.current += 1;
     checkingAnswer.current = false;
+    setIsHistorySubmitting(false);
     clearMap();
     dispatch({ type: 'reset', phase });
   };
@@ -150,7 +161,10 @@ function Game() {
     dispatch({ type: 'phase', phase: 'selecting' });
   };
 
-  const back = () => resetGame('ready');
+  const back = () => {
+    resetGame(isChoosingHistoryEra ? 'selecting' : 'ready');
+    setIsChoosingHistoryEra(false);
+  };
   const stop = () => {
     if (isCountryGuess) {
       void finishCountryGuess();
@@ -180,24 +194,31 @@ function Game() {
     }
   };
 
-  const selectMode = async (mode: GameMode) => {
+  const selectMode = async (mode: GameMode, era?: HistoryEra) => {
     resetGame('selecting');
+    if (mode.kind === 'history' && !era) {
+      setIsChoosingHistoryEra(true);
+      return;
+    }
     const requestId = ++modeRequestId.current;
     dispatch({ type: 'loading', modeId: mode.id });
     try {
       const countryGuessGame = mode.kind === 'countryGuess' ? await createCountryGuessGame() : null;
-      const questions = mode.kind === 'countryGuess' ? (countryGuessGame?.questions ?? []) : await getQuestionsForType(mode.type);
+      const questions = era
+        ? await getHistoryQuestions(era)
+        : mode.kind === 'map' ? await getQuestionsForType(mode.type) : countryGuessGame?.questions ?? [];
       if (requestId !== modeRequestId.current) return;
       if (questions.length === 0) {
-        dispatch({ type: 'error', message: gameText.errors.noQuestions });
+        dispatch({ type: 'error', message: era ? gameText.history.noQuestions : gameText.errors.noQuestions });
         return;
       }
+      setIsChoosingHistoryEra(false);
       dispatch({ type: 'modeLoaded', mode, questions, countryGuessGameId: countryGuessGame?.id });
     } catch (error) {
       if (requestId === modeRequestId.current) {
         dispatch({
           type: 'error',
-          message: gameText.errors.loadQuestions(errorMessage(error)),
+          message: gameText.errors.loadQuestions(era ? historyErrorMessage(error) : errorMessage(error)),
         });
       }
     } finally {
@@ -211,12 +232,15 @@ function Game() {
     if (game.phase !== 'started' || isCountryGuess || isAnswerSubmitted || checkingAnswer.current) {
       return;
     }
-    const coordinates = { lng: data.lngLat.lng, lat: data.lngLat.lat };
-    const answer = formatPlaceName(data.city, data.country, coordinates);
+    if (isHistory && historyQuestion?.kind !== 'location') return;
+
+    const point = isHistory ? data.lngLat.wrap() : data.lngLat;
+    const coordinates = { lng: point.lng, lat: point.lat };
+    const answer = isHistory ? formatCoordinates(coordinates) : formatPlaceName(data.city, data.country, coordinates);
     if (selectedMarker.current) {
       mapRef.current?.remove(selectedMarker.current);
     }
-    selectedMarker.current = mapRef.current?.addMarker(data.lngLat) ?? null;
+    selectedMarker.current = mapRef.current?.addMarker(point) ?? null;
     dispatch({ type: 'selectAnswer', coordinates, answer });
   };
 
@@ -224,6 +248,7 @@ function Game() {
     if (
       game.phase !== 'started' ||
       !currentQuestion ||
+      !('fact' in currentQuestion) ||
       !game.selectedCoordinates ||
       !answer ||
       isAnswerSubmitted ||
@@ -281,13 +306,6 @@ function Game() {
 
       const answerFeedback: QuestionFeedback =
         result.correctness === 'yes' ? 'correct' : result.correctness === 'partially' ? 'close' : 'incorrect';
-      const feedbackMessage =
-        result.correctness === 'yes'
-          ? gameText.feedback.correct
-          : result.correctness === 'partially'
-            ? gameText.feedback.partiallyCorrect
-            : gameText.feedback.correctLocation(formatCoordinates(result.correctAnswer));
-
       const questionResult: QuestionResult = {
         prompt: currentQuestion.prompt,
         submittedAnswer: answer,
@@ -321,9 +339,72 @@ function Game() {
     }
   };
 
+  const submitHistoryAnswer = async () => {
+    if (game.phase !== 'started' || !historyQuestion || isAnswerSubmitted || checkingAnswer.current) return;
+
+    let answer: HistoryAnswer;
+    let submittedAnswer: string;
+    if (historyQuestion.kind === 'location') {
+      if (!game.selectedCoordinates) return;
+      answer = { kind: 'location', coordinates: game.selectedCoordinates };
+      submittedAnswer = formatCoordinates(game.selectedCoordinates);
+    } else {
+      if (game.selectedHistoryOptions.length === 0) return;
+      answer = { kind: 'participants', optionIds: game.selectedHistoryOptions };
+      submittedAnswer = historyQuestion.options
+        .filter(({ id }) => game.selectedHistoryOptions.includes(id))
+        .map(({ label }) => label)
+        .join(', ');
+    }
+
+    checkingAnswer.current = true;
+    setIsHistorySubmitting(true);
+    const requestId = ++answerRequestId.current;
+    dispatch({ type: 'error', message: null });
+    try {
+      const result = await checkHistoryAnswer(historyQuestion.id, answer);
+      if (requestId !== answerRequestId.current) return;
+
+      if (result.kind === 'location') {
+        const correctLocation = new MapLngLat(result.correctAnswer.lng, result.correctAnswer.lat);
+        const guessedLocation = selectedMarker.current?.getLngLat();
+        if (guessedLocation) mapRef.current?.addDottedLine(guessedLocation, correctLocation);
+        mapRef.current?.showAnswerLocation(correctLocation);
+        mapRef.current?.addAnswerMarker(correctLocation);
+      }
+
+      const correct = result.correctness === 'yes';
+      const partial = result.correctness === 'partially';
+      dispatch({
+        type: 'submitAnswer',
+        feedback: correct ? 'correct' : partial ? 'close' : 'incorrect',
+        historyFeedback: result,
+        result: {
+          prompt: historyQuestion.prompt,
+          submittedAnswer,
+          correctAnswer: result.answerLabel,
+          isCorrect: correct,
+          pointsEarned: result.points,
+          quality: correct ? 'good' : partial ? 'medium' : 'bad',
+          distanceKm: result.kind === 'location' ? result.distanceKm : undefined,
+        },
+      });
+    } catch (error) {
+      if (requestId === answerRequestId.current) {
+        dispatch({ type: 'error', message: gameText.errors.checkAnswer(historyErrorMessage(error)) });
+      }
+    } finally {
+      if (requestId === answerRequestId.current) {
+        checkingAnswer.current = false;
+        setIsHistorySubmitting(false);
+      }
+    }
+  };
+
   const nextQuestion = () => {
     if (!isAnswerSubmitted || checkingAnswer.current) return;
     if (game.questionIndex === game.questions.length - 1) {
+      if (isHistory) clearMap();
       dispatch({ type: 'phase', phase: 'completed' });
       return;
     }
@@ -443,7 +524,7 @@ function Game() {
     const controller = new AbortController();
     void getMapGeoData(controller.signal)
       .then((mapData) => {
-        if (gameStateRef.current !== 'ready') {
+        if (gameStateRef.current !== 'ready' || mapData === getBundledMapGeoData()) {
           return;
         }
         setIsMapLoaded(false);
@@ -623,7 +704,28 @@ function Game() {
               />
             </FloatingPanel>
           )}
-          {gameState === 'started' && !isCountryGuess && (
+          {gameState === 'started' && historyQuestion && (
+            <FloatingPanel position="left-center" mobilePosition="bottom-center">
+              <HistoryQuestionPanel
+                key={historyQuestion.id}
+                question={historyQuestion}
+                questionLabel={gameText.question.label(game.questionIndex + 1, game.questions.length)}
+                selectedLocation={game.selectedAnswer}
+                selectedOptionIds={game.selectedHistoryOptions}
+                result={game.historyFeedback}
+                feedback={feedback}
+                submitting={isHistorySubmitting}
+                onToggle={(optionId) => {
+                  if (!checkingAnswer.current && !isAnswerSubmitted) {
+                    dispatch({ type: 'toggleHistoryOption', optionId });
+                  }
+                }}
+                onSubmit={() => void submitHistoryAnswer()}
+                onNext={nextQuestion}
+              />
+            </FloatingPanel>
+          )}
+          {gameState === 'started' && !isCountryGuess && !isHistory && (
             <FloatingPanel position="left-center" mobilePosition="bottom-center">
               <QuestionPanel
                 question={currentQuestion}
@@ -637,7 +739,7 @@ function Game() {
           )}
         </>
       )}
-      {(!game.activeMode || (isQuizComplete && !isCountryGuess)) && (
+      {(!game.activeMode || (isQuizComplete && !isCountryGuess && !isHistory)) && (
         <Leaderboards
           entries={leaderboards}
           currentPlayerName={currentPlayer}
@@ -660,8 +762,8 @@ function Game() {
             : undefined
         }
         eyebrow={isPaused ? gameText.controls.pausedEyebrow : gameText.controls.readyEyebrow}
-        title={isPaused ? gameText.controls.pausedTitle : gameText.controls.chooseModeTitle}
-        description={isPaused ? gameText.controls.pausedDescription : gameText.controls.chooseModeDescription}
+        title={isPaused ? gameText.controls.pausedTitle : isChoosingHistoryEra ? gameText.history.eraTitle : gameText.controls.chooseModeTitle}
+        description={isPaused ? gameText.controls.pausedDescription : isChoosingHistoryEra ? gameText.history.eraDescription : gameText.controls.chooseModeDescription}
         footer={
           game.activeMode && (
             <div className={styles.pauseActions}>
@@ -671,7 +773,17 @@ function Game() {
           )
         }
       >
-        {!game.activeMode &&
+        {!game.activeMode && isChoosingHistoryEra && (
+          HISTORY_ERAS.map((era) => (
+            <Card key={era} onClick={() => void selectMode(HISTORY_MODE, era)}>
+              <span className={styles.cardTitle}>{gameText.history.eras[era]}</span>
+              <span className={styles.cardAction}>
+                {game.loadingModeId === HISTORY_MODE.id ? gameText.modes.loadingAction : gameText.modes.startAction}
+              </span>
+            </Card>
+          ))
+        )}
+        {!game.activeMode && !isChoosingHistoryEra &&
           GAME_MODES.map((mode) => (
             <Card key={mode.name} onClick={() => void selectMode(mode)}>
               <span className={styles.cardIcon}>{mode.icon}</span>

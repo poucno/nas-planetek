@@ -18,6 +18,8 @@ export type QuestionPanelProps = {
   questionLabel?: ReactNode;
   submitLabel?: ReactNode;
   nextLabel?: ReactNode;
+  children?: ReactNode;
+  submitting?: boolean;
 };
 
 type QuestionContentProps = Pick<QuestionPanelProps, 'question' | 'questionLabel'> & {
@@ -42,6 +44,8 @@ const QuestionPanel = ({
   questionLabel,
   submitLabel,
   nextLabel,
+  children,
+  submitting,
 }: QuestionPanelProps) => {
   const isAnswerSubmitted = feedback !== undefined;
 
@@ -62,24 +66,24 @@ const QuestionPanel = ({
 
       if (isAnswerSubmitted) {
         onNext?.();
-      } else if (question && selectedAnswer) {
+      } else if (question && selectedAnswer && !submitting) {
         onSubmit(selectedAnswer);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAnswerSubmitted, onNext, onSubmit, question, selectedAnswer]);
+  }, [isAnswerSubmitted, onNext, onSubmit, question, selectedAnswer, submitting]);
 
   return (
     <section className={`${styles.panel} ${feedback ? styles[feedback] : ''}`}>
-      <QuestionContent question={question} questionLabel={questionLabel} />
+      <QuestionContent question={question} questionLabel={questionLabel} footer={children} />
       {isAnswerSubmitted ? (
         onNext && <GameButton type="next" onClick={onNext} label={nextLabel} />
       ) : (
         <GameButton
           type="submit"
-          disabled={!selectedAnswer || !question}
+          disabled={!selectedAnswer || !question || submitting}
           onClick={() => question && selectedAnswer && onSubmit(selectedAnswer)}
           label={submitLabel}
         />
